@@ -6,12 +6,11 @@ An Obsidian plugin that helps you track TODOs and FIXMEs from your GitHub reposi
 
 - Find and display TODOs, FIXMEs, and other configurable keywords from GitHub repositories
 - **Local Repository Analysis**: Downloads repositories and searches locally to avoid API rate limits
-- **Smart Grouping**: Group issues by language, file, or keyword
-- **Rich Visualization**: Color-coded issues (green for TODOs, red for FIXMEs) and syntax highlighting based on file type
-- **Advanced Filtering**: Filter results by programming language or search text directly in the rendered view
+- **Smart Grouping**: Group issues by file or keyword
+- **Rich Visualization**: Color-coded issues (green for TODOs, red for FIXMEs) and syntax highlighting
+- **Advanced Filtering**: Filter results by type (TODO, FIXME, etc.) or search text directly in the rendered view
 - **Enhanced Keyword Detection**: Recognizes various TODO formats (TODO, TODO:, // TODO, /* TODO, etc.)
 - **Performance Optimized**: Repository caching to minimize downloads and API calls
-- **Comprehensive Language Support**: Supports syntax highlighting for 25+ programming languages
 - **Robust Error Handling**: Graceful handling of network issues and corrupted downloads
 - Direct linking to the source code on GitHub
 - Simple syntax for embedding in your notes
@@ -45,24 +44,12 @@ The plugin recognizes many common patterns for TODOs:
 
 The enhanced UI provides:
 - **Instant Filtering**: Type in the filter box to instantly filter results
+- **Type Filtering**: Quickly filter by issue type (TODO, FIXME, BUG, etc.)
 - **Color-Coding**: Green for TODOs, red for FIXMEs, and other colors for different types of notes
-- **Language Badges**: Automatically detects and displays the programming language based on file extension
-- **Syntax Highlighting**: Code snippets are highlighted according to their language
+- **File Badges**: Shows file extensions for easy identification
+- **Syntax Highlighting**: Code snippets are highlighted for better readability
 - **Line Number Badges**: Quickly see which line in the file contains the issue
 - **Direct GitHub Links**: Click on filenames to go directly to the code on GitHub
-
-### Supported Languages
-
-The plugin supports syntax highlighting for numerous languages including:
-- JavaScript/TypeScript
-- Python, Ruby, PHP
-- Java, C/C++, C#, Go, Rust
-- Swift, Kotlin
-- HTML, CSS, SCSS
-- Markdown, JSON, YAML, XML
-- Shell scripts
-- OCaml
-- And many more...
 
 ## Configuration
 

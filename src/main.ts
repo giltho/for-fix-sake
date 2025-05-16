@@ -338,6 +338,7 @@ export default class ForFixSakePlugin extends Plugin {
     const filterContainer = container.createEl('div', { cls: 'for-fix-sake-filter' });
     filterContainer.style.marginBottom = '10px';
 
+    // Text filter
     const filterInput = filterContainer.createEl('input', {
       attr: {
         type: 'text',
@@ -383,17 +384,85 @@ export default class ForFixSakePlugin extends Plugin {
       'mli': 'ocaml'
     };
 
+    // Add filter by type buttons
+    const typeFilterContainer = filterContainer.createEl('div', { cls: 'for-fix-sake-type-filter' });
+    typeFilterContainer.style.display = 'flex';
+    typeFilterContainer.style.marginBottom = '10px';
+    typeFilterContainer.style.gap = '8px';
+    typeFilterContainer.style.flexWrap = 'wrap';
+
+    // Create a button for "All" and the different kinds of issues
+    const typeFilters = ['All', 'TODO', 'FIXME', 'BUG', 'HACK', 'NOTE'];
+    const typeFilterButtons: { [key: string]: HTMLElement } = {};
+
+    // Color mapping for the buttons
+    const typeColors: { [key: string]: string } = {
+      'TODO': '#2ecc71',  // Green
+      'FIXME': '#e74c3c', // Red
+      'BUG': '#e67e22',   // Orange
+      'HACK': '#9b59b6',  // Purple
+      'NOTE': '#3498db',  // Blue
+      'All': 'var(--interactive-accent)'
+    };
+
+    // Create filter buttons
+    let activeFilter = 'All';
+    typeFilters.forEach(type => {
+      const button = typeFilterContainer.createEl('button', { text: type });
+      typeFilterButtons[type] = button;
+
+      // Style the button
+      button.style.padding = '4px 8px';
+      button.style.borderRadius = '4px';
+      button.style.border = 'none';
+      button.style.cursor = 'pointer';
+      button.style.backgroundColor = type === 'All' ? typeColors[type] : 'var(--background-primary)';
+      button.style.color = type === 'All' ? 'white' : 'var(--text-normal)';
+      button.style.fontWeight = type === 'All' ? 'bold' : 'normal';
+
+      // Add left border with type color
+      if (type !== 'All') {
+        button.style.borderLeft = `4px solid ${typeColors[type]}`;
+      }
+
+      // Click event
+      button.addEventListener('click', () => {
+        // Update active state
+        activeFilter = type;
+
+        // Update button styles
+        Object.keys(typeFilterButtons).forEach(t => {
+          const btn = typeFilterButtons[t];
+          if (t === activeFilter) {
+            btn.style.backgroundColor = t === 'All' ? typeColors[t] : 'var(--background-secondary)';
+            btn.style.fontWeight = 'bold';
+          } else {
+            btn.style.backgroundColor = t === 'All' ? 'var(--background-primary)' : 'var(--background-primary)';
+            btn.style.fontWeight = 'normal';
+          }
+        });
+
+        // Apply filters
+        applyFilters();
+      });
+    });
+
     // Create issues list
     const list = container.createEl('ul');
     list.style.listStyleType = 'none';
     list.style.padding = '0';
     list.style.margin = '0';
 
-    const listItems: HTMLLIElement[] = [];
+    // Track list items and their types
+    interface ListItemInfo {
+      element: HTMLLIElement;
+      type: string;
+      text: string;
+    }
+    const listItems: ListItemInfo[] = [];
 
     issues.forEach(issue => {
       const item = list.createEl('li');
-      listItems.push(item);
 
       item.style.margin = '8px 0';
       item.style.padding = '12px';
@@ -401,15 +470,32 @@ export default class ForFixSakePlugin extends Plugin {
       item.style.borderRadius = '4px';
       item.style.borderLeft = '4px solid';
 
-      // Determine the color based on the keyword
+      // Determine the type and color based on the keyword
       const content = issue.content.toLowerCase();
+      let itemType = 'NOTE'; // Default
+
       if (content.includes('fixme')) {
-        item.style.borderLeftColor = '#e74c3c'; // Red for FIXME
+        itemType = 'FIXME';
+        item.style.borderLeftColor = typeColors.FIXME;
       } else if (content.includes('todo')) {
-        item.style.borderLeftColor = '#2ecc71'; // Green for TODO
+        itemType = 'TODO';
+        item.style.borderLeftColor = typeColors.TODO;
+      } else if (content.includes('bug')) {
+        itemType = 'BUG';
+        item.style.borderLeftColor = typeColors.BUG;
+      } else if (content.includes('hack')) {
+        itemType = 'HACK';
+        item.style.borderLeftColor = typeColors.HACK;
       } else {
-        item.style.borderLeftColor = '#3498db'; // Blue for other keywords
+        item.style.borderLeftColor = typeColors.NOTE;
       }
+
+      // Store item info for filtering
+      listItems.push({
+        element: item,
+        type: itemType,
+        text: issue.content.toLowerCase() + ' ' + issue.file.toLowerCase()
+      });
 
       // File header section
       const fileHeader = item.createEl('div', { cls: 'for-fix-sake-file-header' });
@@ -445,6 +531,19 @@ export default class ForFixSakePlugin extends Plugin {
       lineNumber.style.fontSize = '12px';
       lineNumber.style.fontWeight = 'bold';
 
+      // Add type badge
+      const typeBadge = fileHeader.createEl('span', {
+        text: itemType,
+        cls: 'for-fix-sake-type-badge'
+      });
+      typeBadge.style.backgroundColor = typeColors[itemType];
+      typeBadge.style.color = 'white';
+      typeBadge.style.padding = '2px 6px';
+      typeBadge.style.borderRadius = '4px';
+      typeBadge.style.fontSize = '12px';
+      typeBadge.style.marginLeft = '8px';
+      typeBadge.style.fontWeight = 'bold';
+
       // Add file extension badge if we can determine it
       const fileExt = issue.file.split('.').pop()?.toLowerCase();
       if (fileExt && fileExtToLanguage[fileExt]) {
@@ -460,7 +559,7 @@ export default class ForFixSakePlugin extends Plugin {
         langBadge.style.marginLeft = '8px';
       }
 
-      // Issue content with syntax highlighting
+      // Issue content with proper highlighting
       const codeBlock = item.createEl('div', { cls: 'for-fix-sake-code-block' });
       codeBlock.style.marginTop = '8px';
       codeBlock.style.background = 'var(--background-secondary)';
@@ -475,75 +574,84 @@ export default class ForFixSakePlugin extends Plugin {
 
       // Create a code element with language class if available
       const language = fileExt && fileExtToLanguage[fileExt] ? fileExtToLanguage[fileExt] : '';
-      const code = pre.createEl('code', {
-        cls: language ? `language-${language}` : '',
-        text: issue.content
-      });
+      const code = pre.createEl('code', { cls: language ? `language-${language}` : '' });
 
-      // Try to highlight specific keywords within the code
-      const highlightKeywords = () => {
-        // First, escape HTML to prevent XSS
-        let htmlContent = issue.content
-          .replace(/&/g, '&amp;')
-          .replace(/</g, '&lt;')
-          .replace(/>/g, '&gt;')
-          .replace(/"/g, '&quot;')
-          .replace(/'/g, '&#039;');
+      // Direct content setting to avoid escaping issues
+      code.textContent = issue.content;
 
-        // Define an array of patterns to match with their colors
+      // Apply highlighting directly to DOM elements rather than HTML manipulation
+      const highlightElement = () => {
+        // First add the entire content
+        const codeText = issue.content;
+
+        // Patterns to match with their styles
         const keywordPatterns = [
-          { regex: /\b(TODO)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, color: '#2ecc71' }, // green - matches TODO, TODO:, TODO(user), TODO[123]
-          { regex: /\b(FIXME)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, color: '#e74c3c' }, // red - matches FIXME, FIXME:, FIXME(user)
-          { regex: /\b(BUG)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, color: '#e67e22' },   // orange
-          { regex: /\b(HACK)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, color: '#9b59b6' },  // purple
-          { regex: /\b(NOTE)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, color: '#3498db' }   // blue
+          { pattern: /\b(TODO)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, className: 'todo-keyword' },
+          { pattern: /\b(FIXME)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, className: 'fixme-keyword' },
+          { pattern: /\b(BUG)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, className: 'bug-keyword' },
+          { pattern: /\b(HACK)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, className: 'hack-keyword' },
+          { pattern: /\b(NOTE)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, className: 'note-keyword' }
         ];
 
-        // Also highlight comment patterns that contain the keywords
-        const commentPatterns = [
-          { prefix: '//', style: 'color: #7f8c8d' },  // single-line comment
-          { prefix: '/*', style: 'color: #7f8c8d' },  // multi-line comment start
-          { prefix: '#', style: 'color: #7f8c8d' },   // shell/python style
-          { prefix: '--', style: 'color: #7f8c8d' },  // SQL style
-          { prefix: ';', style: 'color: #7f8c8d' },   // assembly/lisp style
-        ];
+        // Add specific styles for each keyword type
+        const styleEl = document.createElement('style');
+        styleEl.textContent = `
+          .todo-keyword { color: ${typeColors.TODO}; font-weight: bold; }
+          .fixme-keyword { color: ${typeColors.FIXME}; font-weight: bold; }
+          .bug-keyword { color: ${typeColors.BUG}; font-weight: bold; }
+          .hack-keyword { color: ${typeColors.HACK}; font-weight: bold; }
+          .note-keyword { color: ${typeColors.NOTE}; font-weight: bold; }
+          .comment { color: #7f8c8d; }
+        `;
+        document.head.appendChild(styleEl);
 
-        // Apply comment highlighting
-        for (const pattern of commentPatterns) {
-          const escapedPrefix = pattern.prefix
-            .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const commentRegex = new RegExp(`(${escapedPrefix}\\s*.+)`, 'g');
-          htmlContent = htmlContent.replace(commentRegex, `<span style="${pattern.style}">$1</span>`);
+        // Set initial text
+        code.textContent = codeText;
+
+        // Replace text with highlighted elements - requires using highlight.js or similar
+        // For now, let's use a simple but visible highlighting with background colors
+        for (const kw of keywordPatterns) {
+          if (codeText.match(kw.pattern)) {
+            const bgColor = kw.className.split('-')[0].toUpperCase();
+            code.style.borderLeft = `4px solid ${typeColors[bgColor]}`;
+            break;
+          }
         }
-
-        // Apply keyword highlighting on top of comment highlighting
-        for (const pattern of keywordPatterns) {
-          htmlContent = htmlContent.replace(pattern.regex, (match: string, keyword: string, attributes: string, colon: string) => {
-            attributes = attributes || '';
-            colon = colon || '';
-            return `<span style="color: ${pattern.color}; font-weight: bold;">${keyword}</span>${attributes}${colon}`;
-          });
-        }
-
-        code.innerHTML = htmlContent;
       };
 
-      // Apply keyword highlighting
-      highlightKeywords();
+      // Apply highlighting
+      highlightElement();
     });
 
-    // Add filter functionality
-    filterInput.addEventListener('input', () => {
+    // Function to apply both text and type filters
+    const applyFilters = () => {
       const filterText = filterInput.value.toLowerCase();
+
       listItems.forEach(item => {
-        const text = item.textContent?.toLowerCase() || '';
-        if (filterText === '' || text.includes(filterText)) {
-          item.style.display = '';
+        const matchesText = filterText === '' || item.text.includes(filterText);
+        const matchesType = activeFilter === 'All' || item.type === activeFilter;
+
+        if (matchesText && matchesType) {
+          item.element.style.display = '';
         } else {
-          item.style.display = 'none';
+          item.element.style.display = 'none';
         }
       });
-    });
+
+      // Update the header to show filtered count
+      const visibleCount = listItems.filter(item => item.element.style.display !== 'none').length;
+      const headerEl = container.querySelector('h3');
+      if (headerEl) {
+        if (visibleCount === issues.length) {
+          headerEl.textContent = `Found ${issues.length} issues`;
+        } else {
+          headerEl.textContent = `Showing ${visibleCount} of ${issues.length} issues`;
+        }
+      }
+    };
+
+    // Add filter functionality
+    filterInput.addEventListener('input', applyFilters);
   }
 
   onunload() {

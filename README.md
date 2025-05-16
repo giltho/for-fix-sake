@@ -24,13 +24,20 @@ keywords: TODO FIXME # optional, this is the default
 
 1. Install the plugin
 2. Go to Settings > For Fix Sake
-3. Enter your GitHub Personal Access Token
+3. Enter your GitHub Personal Access Token (instructions provided in settings)
+   - Go to GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens
+   - Click "Generate new token"
+   - Name your token (e.g., "For Fix Sake Obsidian Plugin")
+   - Set an expiration date (recommended: 90 days)
+   - Under "Repository access", select repositories you want to access
+   - Under "Repository permissions", set "Contents" to "Read-only"
+   - Click "Generate token" and copy it to the plugin settings
 4. (Optional) Configure default keywords to search for
 
 ## Requirements
 
 - Obsidian v0.15.0+
-- GitHub Personal Access Token with repo access
+- GitHub Personal Access Token with repo access (only for private repositories)
 
 ## Installation
 

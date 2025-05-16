@@ -1,6 +1,21 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 import { Octokit } from 'octokit';
 
+// Define types for GitHub API responses
+interface GitHubContent {
+  type: "dir" | "file" | "submodule" | "symlink";
+  size: number;
+  name: string;
+  path: string;
+  content?: string;
+  sha: string;
+  url: string;
+  git_url: string | null;
+  html_url: string | null;
+  download_url: string | null;
+  _links: any;
+}
+
 // Define the setting interface
 interface ForFixSakeSettings {
   githubToken: string;
@@ -46,7 +61,12 @@ export default class ForFixSakePlugin extends Plugin {
         const issues = await this.fetchIssues(repo, keywords);
         this.renderIssues(issues, el);
       } catch (error) {
-        el.createEl('div', { text: `Error fetching issues: ${error.message}` });
+        // Check if it might be a private repository access issue
+        if (error.status === 404 && !this.settings.githubToken) {
+          el.createEl('div', { text: `Error: This may be a private repository. Please configure a GitHub token in the plugin settings.` });
+        } else {
+          el.createEl('div', { text: `Error fetching issues: ${error.message}` });
+        }
       }
     });
 
@@ -55,11 +75,10 @@ export default class ForFixSakePlugin extends Plugin {
   }
 
   async fetchIssues(repo: string, keywords: string[]) {
-    if (!this.settings.githubToken) {
-      throw new Error('GitHub token not configured. Please add it in the plugin settings.');
-    }
-
-    const octokit = new Octokit({ auth: this.settings.githubToken });
+    // Create Octokit instance with or without authentication
+    const octokit = this.settings.githubToken
+      ? new Octokit({ auth: this.settings.githubToken })
+      : new Octokit();
 
     const [owner, repoName] = repo.split('/');
 
@@ -80,7 +99,7 @@ export default class ForFixSakePlugin extends Plugin {
     const results = [];
 
     // Recursively get all files in the repository
-    async function getFilesRecursively(path = '') {
+    async function getFilesRecursively(path = ''): Promise<any[]> {
       const { data: contents } = await octokit.rest.repos.getContent({
         owner,
         repo: repoName,
@@ -88,9 +107,12 @@ export default class ForFixSakePlugin extends Plugin {
         ref: defaultBranch,
       });
 
-      const files = [];
+      const files: GitHubContent[] = [];
 
-      for (const item of contents) {
+      // Handle both array and single object responses
+      const contentArray = Array.isArray(contents) ? contents : [contents];
+
+      for (const item of contentArray) {
         if (item.type === 'dir') {
           const subFiles = await getFilesRecursively(item.path);
           files.push(...subFiles);
@@ -118,11 +140,14 @@ export default class ForFixSakePlugin extends Plugin {
         ref: defaultBranch,
       });
 
+      // Ensure we have a single file object
+      const fileData = Array.isArray(contentData) ? null : contentData as GitHubContent;
+
       // Skip if not a file with content
-      if (!contentData.content) continue;
+      if (!fileData || !fileData.content) continue;
 
       // Decode base64 content
-      const content = Buffer.from(contentData.content, 'base64').toString();
+      const content = Buffer.from(fileData.content, 'base64').toString();
 
       // Check for keywords
       const lines = content.split('\n');
@@ -131,10 +156,12 @@ export default class ForFixSakePlugin extends Plugin {
 
         for (const keyword of keywords) {
           if (line.includes(`${keyword}:`)) {
+            // Include the next line if available
+            const nextLine = i + 1 < lines.length ? '\n' + lines[i + 1].trim() : '';
             results.push({
               file: file.path,
               line: i + 1,
-              content: line.trim(),
+              content: line.trim() + nextLine,
               url: `https://github.com/${owner}/${repoName}/blob/${defaultBranch}/${file.path}#L${i + 1}`
             });
           }
@@ -210,6 +237,8 @@ export default class ForFixSakePlugin extends Plugin {
   async saveSettings() {
     await this.saveData(this.settings);
   }
+
+
 }
 
 class ForFixSakeSettingTab extends PluginSettingTab {
@@ -227,7 +256,8 @@ class ForFixSakeSettingTab extends PluginSettingTab {
 
     containerEl.createEl('h2', { text: 'For Fix Sake Settings' });
 
-    new Setting(containerEl)
+    // GitHub Token section
+    const tokenSetting = new Setting(containerEl)
       .setName('GitHub Token')
       .setDesc('Enter your GitHub personal access token')
       .addText(text => text
@@ -237,6 +267,31 @@ class ForFixSakeSettingTab extends PluginSettingTab {
           this.plugin.settings.githubToken = value;
           await this.plugin.saveSettings();
         }));
+
+    // Add token creation guide
+    const tokenGuide = containerEl.createEl('div', { cls: 'token-guide' });
+    tokenGuide.style.backgroundColor = 'var(--background-secondary)';
+    tokenGuide.style.padding = '12px';
+    tokenGuide.style.borderRadius = '4px';
+    tokenGuide.style.marginTop = '8px';
+    tokenGuide.style.fontSize = '14px';
+
+    tokenGuide.createEl('h3', { text: 'How to Create a GitHub Token' });
+
+    const steps = tokenGuide.createEl('ol');
+    steps.createEl('li', { text: 'Go to GitHub Settings → Developer settings → Personal access tokens → Fine-grained tokens' });
+    steps.createEl('li', { text: 'Click "Generate new token"' });
+    steps.createEl('li', { text: 'Name your token (e.g., "For Fix Sake Obsidian Plugin")' });
+    steps.createEl('li', { text: 'Set an expiration date (recommended: 90 days)' });
+    steps.createEl('li', { text: 'Under "Repository access", select "Only select repositories" and choose the repositories you want to access' });
+    steps.createEl('li', { text: 'Under "Permissions", expand "Repository permissions" and set "Contents" to "Read-only"' });
+    steps.createEl('li', { text: 'Click "Generate token" and copy the generated token' });
+    steps.createEl('li', { text: 'Paste the token in the field above' });
+
+    // Add note about public repositories
+    tokenGuide.createEl('p', {
+      text: 'Note: A token is only required for private repositories. Public repositories can be accessed without a token.'
+    });
 
     new Setting(containerEl)
       .setName('Default Keywords')

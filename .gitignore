@@ -1,0 +1,13 @@
+# Obsidian
+.obsidian/
+
+# Dependency directories
+node_modules/
+
+# Build files
+main.js
+*.js.map
+.DS_Store
+
+# Environment variables
+.env 

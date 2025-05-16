@@ -572,41 +572,16 @@ export default class ForFixSakePlugin extends Plugin {
       pre.style.padding = '8px 12px';
       pre.style.overflowX = 'auto';
 
-      // Create a code element with language class if available
+      // Create a code element with language class for Obsidian's syntax highlighting
       const language = fileExt && fileExtToLanguage[fileExt] ? fileExtToLanguage[fileExt] : '';
-      const code = pre.createEl('code', {
+
+      // Use language- prefix for Obsidian's Prism syntax highlighting
+      const codeEl = pre.createEl('code', {
         cls: language ? `language-${language}` : ''
       });
 
-      // Set the content
-      code.textContent = issue.content;
-
-      // Apply syntax highlighting using Obsidian's built-in capabilities
-      // This approach leverages Obsidian's syntax highlighting if available
-      try {
-        // Only proceed if we're in the Obsidian environment
-        const win = window as any;
-        if (win.Prism && language) {
-          // Try to use Prism for syntax highlighting if available
-          setTimeout(() => {
-            try {
-              win.Prism.highlightElement(code);
-            } catch (e) {
-              console.error('Error applying syntax highlighting:', e);
-            }
-          }, 10);
-        }
-      } catch (e) {
-        // Silent fail - highlighting is not critical
-      }
-
-      // For better visibility, use bold for the keywords
-      const keywordPattern = new RegExp(`\\b(${itemType})\\b`, 'gi');
-      const originalText = code.textContent || '';
-      if (keywordPattern.test(originalText)) {
-        // Use CSS to highlight the keyword rather than DOM manipulation
-        code.classList.add(`${itemType.toLowerCase()}-keyword`);
-      }
+      // Set content and let Obsidian/Prism handle the highlighting
+      codeEl.textContent = issue.content;
     });
 
     // Add global CSS for keyword highlighting

@@ -1,7 +1,7 @@
 {
   "id": "for-fix-sake",
   "name": "For Fix Sake",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "minAppVersion": "0.15.0",
   "description": "Find and display TODOs and FIXMEs from GitHub repositories with powerful filtering and grouping capabilities",
   "author": "For Fix Sake Team",

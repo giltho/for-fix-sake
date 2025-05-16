@@ -78,7 +78,6 @@ export default class ForFixSakePlugin extends Plugin {
       const lines = source.split('\n');
       let repo = '';
       let keywords = this.settings.defaultKeywords;
-      let forceApi = false;
 
       for (const line of lines) {
         if (line.startsWith('repo:')) {
@@ -86,9 +85,6 @@ export default class ForFixSakePlugin extends Plugin {
         } else if (line.startsWith('keywords:')) {
           const keywordString = line.substring('keywords:'.length).trim();
           keywords = keywordString.split(/\s+/);
-        } else if (line.startsWith('force-api:')) {
-          const forceApiString = line.substring('force-api:'.length).trim().toLowerCase();
-          forceApi = forceApiString === 'true';
         }
       }
 
@@ -100,21 +96,15 @@ export default class ForFixSakePlugin extends Plugin {
       try {
         // Show loading message
         const loadingEl = el.createEl('div', { text: 'Loading...' });
+        loadingEl.textContent = 'Downloading repository and searching locally...';
 
         let issues;
-
-        // Use local search by default unless force-api is specified
-        if (!forceApi) {
-          try {
-            loadingEl.textContent = 'Downloading repository and searching locally...';
-            issues = await this.fetchIssuesLocally(repo, keywords);
-          } catch (localError) {
-            console.error('Local search failed, falling back to API:', localError);
-            loadingEl.textContent = 'Local search failed, using GitHub API...';
-            issues = await this.fetchIssues(repo, keywords);
-          }
-        } else {
-          loadingEl.textContent = 'Using GitHub API...';
+        try {
+          // Use local search by default
+          issues = await this.fetchIssuesLocally(repo, keywords);
+        } catch (localError) {
+          console.error('Local search failed, falling back to API:', localError);
+          loadingEl.textContent = 'Local search failed, using GitHub API...';
           issues = await this.fetchIssues(repo, keywords);
         }
 

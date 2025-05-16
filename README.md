@@ -24,7 +24,6 @@ Insert a code block with the `for-fix-sake` language tag in your Obsidian notes:
 ```for-fix-sake
 repo: owner/repo-name
 keywords: TODO FIXME BUG # optional, defaults to TODO FIXME
-force-api: false # optional, set to true to force using GitHub API instead of local search
 ```
 ```
 
@@ -77,15 +76,14 @@ The plugin supports syntax highlighting for numerous languages including:
    - Configure cache directory for downloaded repositories
    - Clear repository cache when needed
 
-### Local Search vs. API Search
+### Local Search with API Fallback
 
-The plugin offers two search methods:
+The plugin uses a smart search approach:
 - **Local Search** (default): Downloads repositories as ZIP files and searches locally
   - Advantages: Faster, no API rate limits, better results, searches all text files
   - Disadvantages: Requires disk space, larger repositories take longer to download
-- **API Search**: Uses GitHub's Search API
-  - Advantages: No downloads required, works for very large repositories
-  - Disadvantages: Subject to GitHub API rate limits, slower for multiple keywords
+- **API Search** (fallback): Used only if local search fails
+  - Automatically falls back to GitHub's Search API if there are issues with the local search
 
 ## Smart Repository Management
 

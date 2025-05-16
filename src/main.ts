@@ -437,7 +437,7 @@ export default class ForFixSakePlugin extends Plugin {
             btn.style.backgroundColor = t === 'All' ? typeColors[t] : 'var(--background-secondary)';
             btn.style.fontWeight = 'bold';
           } else {
-            btn.style.backgroundColor = t === 'All' ? 'var(--background-primary)' : 'var(--background-primary)';
+            btn.style.backgroundColor = 'var(--background-primary)';
             btn.style.fontWeight = 'normal';
           }
         });
@@ -574,54 +574,51 @@ export default class ForFixSakePlugin extends Plugin {
 
       // Create a code element with language class if available
       const language = fileExt && fileExtToLanguage[fileExt] ? fileExtToLanguage[fileExt] : '';
-      const code = pre.createEl('code', { cls: language ? `language-${language}` : '' });
+      const code = pre.createEl('code', {
+        cls: language ? `language-${language}` : ''
+      });
 
-      // Direct content setting to avoid escaping issues
+      // Set the content
       code.textContent = issue.content;
 
-      // Apply highlighting directly to DOM elements rather than HTML manipulation
-      const highlightElement = () => {
-        // First add the entire content
-        const codeText = issue.content;
-
-        // Patterns to match with their styles
-        const keywordPatterns = [
-          { pattern: /\b(TODO)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, className: 'todo-keyword' },
-          { pattern: /\b(FIXME)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, className: 'fixme-keyword' },
-          { pattern: /\b(BUG)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, className: 'bug-keyword' },
-          { pattern: /\b(HACK)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, className: 'hack-keyword' },
-          { pattern: /\b(NOTE)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, className: 'note-keyword' }
-        ];
-
-        // Add specific styles for each keyword type
-        const styleEl = document.createElement('style');
-        styleEl.textContent = `
-          .todo-keyword { color: ${typeColors.TODO}; font-weight: bold; }
-          .fixme-keyword { color: ${typeColors.FIXME}; font-weight: bold; }
-          .bug-keyword { color: ${typeColors.BUG}; font-weight: bold; }
-          .hack-keyword { color: ${typeColors.HACK}; font-weight: bold; }
-          .note-keyword { color: ${typeColors.NOTE}; font-weight: bold; }
-          .comment { color: #7f8c8d; }
-        `;
-        document.head.appendChild(styleEl);
-
-        // Set initial text
-        code.textContent = codeText;
-
-        // Replace text with highlighted elements - requires using highlight.js or similar
-        // For now, let's use a simple but visible highlighting with background colors
-        for (const kw of keywordPatterns) {
-          if (codeText.match(kw.pattern)) {
-            const bgColor = kw.className.split('-')[0].toUpperCase();
-            code.style.borderLeft = `4px solid ${typeColors[bgColor]}`;
-            break;
-          }
+      // Apply syntax highlighting using Obsidian's built-in capabilities
+      // This approach leverages Obsidian's syntax highlighting if available
+      try {
+        // Only proceed if we're in the Obsidian environment
+        const win = window as any;
+        if (win.Prism && language) {
+          // Try to use Prism for syntax highlighting if available
+          setTimeout(() => {
+            try {
+              win.Prism.highlightElement(code);
+            } catch (e) {
+              console.error('Error applying syntax highlighting:', e);
+            }
+          }, 10);
         }
-      };
+      } catch (e) {
+        // Silent fail - highlighting is not critical
+      }
 
-      // Apply highlighting
-      highlightElement();
+      // For better visibility, use bold for the keywords
+      const keywordPattern = new RegExp(`\\b(${itemType})\\b`, 'gi');
+      const originalText = code.textContent || '';
+      if (keywordPattern.test(originalText)) {
+        // Use CSS to highlight the keyword rather than DOM manipulation
+        code.classList.add(`${itemType.toLowerCase()}-keyword`);
+      }
     });
+
+    // Add global CSS for keyword highlighting
+    const styleEl = document.createElement('style');
+    styleEl.textContent = `
+      .todo-keyword { font-weight: bold; }
+      .fixme-keyword { font-weight: bold; }
+      .bug-keyword { font-weight: bold; }
+      .hack-keyword { font-weight: bold; }
+      .note-keyword { font-weight: bold; }
+    `;
+    document.head.appendChild(styleEl);
 
     // Function to apply both text and type filters
     const applyFilters = () => {

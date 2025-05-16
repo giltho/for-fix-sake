@@ -19,12 +19,12 @@ An Obsidian plugin that helps you track TODOs and FIXMEs from your GitHub reposi
 
 Insert a code block with the `for-fix-sake` language tag in your Obsidian notes:
 
-```
+````
 ```for-fix-sake
 repo: owner/repo-name
 keywords: TODO FIXME BUG # optional, defaults to TODO FIXME
 ```
-```
+````
 
 The plugin will:
 1. Download the repository (if using local search) or query the GitHub API

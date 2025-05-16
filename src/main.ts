@@ -1,5 +1,10 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
 import { Octokit } from 'octokit';
+import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as https from 'https';
+import AdmZip from 'adm-zip';
 
 // Define types for GitHub API responses
 interface GitHubContent {
@@ -22,6 +27,7 @@ interface ForFixSakeSettings {
   defaultKeywords: string[];
   cacheEnabled: boolean;
   cacheExpiry: number; // In minutes
+  tempDir: string; // Directory for storing downloaded repositories
 }
 
 // Cache structure
@@ -31,8 +37,19 @@ interface CacheEntry {
   etag?: string;
 }
 
+interface RepoCache {
+  latestCommit: string;
+  downloadPath: string;
+  extractPath: string;
+  timestamp: number;
+}
+
 interface PluginCache {
   [key: string]: CacheEntry;
+}
+
+interface RepoMap {
+  [key: string]: RepoCache;
 }
 
 // Define default settings
@@ -40,15 +57,20 @@ const DEFAULT_SETTINGS: ForFixSakeSettings = {
   githubToken: '',
   defaultKeywords: ['TODO', 'FIXME'],
   cacheEnabled: true,
-  cacheExpiry: 60 // 60 minutes
+  cacheExpiry: 60, // 60 minutes
+  tempDir: os.tmpdir() // Directory for storing downloaded repositories
 }
 
 export default class ForFixSakePlugin extends Plugin {
   settings: ForFixSakeSettings;
   cache: PluginCache = {};
+  repoCache: RepoMap = {};
 
   async onload() {
     await this.loadSettings();
+
+    // Create temp directory if it doesn't exist
+    this.ensureTempDirExists();
 
     // Register for-fix-sake code block processor
     this.registerMarkdownCodeBlockProcessor('for-fix-sake', async (source, el, ctx) => {
@@ -56,15 +78,17 @@ export default class ForFixSakePlugin extends Plugin {
       const lines = source.split('\n');
       let repo = '';
       let keywords = this.settings.defaultKeywords;
+      let forceApi = false;
 
       for (const line of lines) {
         if (line.startsWith('repo:')) {
           repo = line.substring('repo:'.length).trim();
         } else if (line.startsWith('keywords:')) {
           const keywordString = line.substring('keywords:'.length).trim();
-          // Remove any comments
-          const withoutComments = keywordString.split('#')[0].trim();
-          keywords = withoutComments.split(/\s+/);
+          keywords = keywordString.split(/\s+/);
+        } else if (line.startsWith('force-api:')) {
+          const forceApiString = line.substring('force-api:'.length).trim().toLowerCase();
+          forceApi = forceApiString === 'true';
         }
       }
 
@@ -74,7 +98,29 @@ export default class ForFixSakePlugin extends Plugin {
       }
 
       try {
-        const issues = await this.fetchIssues(repo, keywords);
+        // Show loading message
+        const loadingEl = el.createEl('div', { text: 'Loading...' });
+
+        let issues;
+
+        // Use local search by default unless force-api is specified
+        if (!forceApi) {
+          try {
+            loadingEl.textContent = 'Downloading repository and searching locally...';
+            issues = await this.fetchIssuesLocally(repo, keywords);
+          } catch (localError) {
+            console.error('Local search failed, falling back to API:', localError);
+            loadingEl.textContent = 'Local search failed, using GitHub API...';
+            issues = await this.fetchIssues(repo, keywords);
+          }
+        } else {
+          loadingEl.textContent = 'Using GitHub API...';
+          issues = await this.fetchIssues(repo, keywords);
+        }
+
+        // Remove loading element
+        loadingEl.remove();
+
         this.renderIssues(issues, el);
       } catch (error) {
         // Error container with better styling
@@ -128,6 +174,30 @@ export default class ForFixSakePlugin extends Plugin {
   }
 
   async fetchIssues(repo: string, keywords: string[]) {
+    // First, check if this repo is already known to be rate limited
+    const rateLimitKey = `ratelimit-${repo}`;
+    if (this.settings.cacheEnabled && this.cache[rateLimitKey] && this.cache[rateLimitKey].data === true) {
+      const now = Date.now();
+      const expiryTime = this.settings.cacheExpiry * 60 * 1000; // Convert minutes to milliseconds
+
+      // If cache entry is still valid, immediately throw a rate limit error
+      if (now - this.cache[rateLimitKey].timestamp < expiryTime) {
+        console.log('Repository is rate limited:', repo);
+
+        // Try the local approach instead when rate limited
+        try {
+          console.log('Trying local file search instead...');
+          return await this.fetchIssuesLocally(repo, keywords);
+        } catch (localError) {
+          console.error('Local search failed:', localError);
+          const error: any = new Error('GitHub API rate limit exceeded');
+          error.status = 403;
+          error.isRateLimit = true;
+          throw error;
+        }
+      }
+    }
+
     // Check cache first if enabled
     const cacheKey = `${repo}-${keywords.join(',')}`;
     if (this.settings.cacheEnabled && this.cache[cacheKey]) {
@@ -196,7 +266,7 @@ export default class ForFixSakePlugin extends Plugin {
     // Process each file
     for (const file of files) {
       // Skip binary files and large files
-      if (file.size > 500000 || !file.name.match(/\.(js|jsx|ts|tsx|py|java|rb|php|c|cpp|h|hpp|cs|go|rs|swift|kt|sh|md|txt)$/i)) {
+      if (file.size > 500000 || !file.name.match(/\.(js|jsx|ts|tsx|py|java|rb|php|c|cpp|h|hpp|cs|go|rs|swift|kt|sh|md|txt|ml|mli)$/i)) {
         continue;
       }
 
@@ -313,7 +383,324 @@ export default class ForFixSakePlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
+  ensureTempDirExists() {
+    try {
+      if (!fs.existsSync(this.settings.tempDir)) {
+        fs.mkdirSync(this.settings.tempDir, { recursive: true });
+      }
+    } catch (error) {
+      console.error('Failed to create temp directory:', error);
+    }
+  }
 
+  async downloadFile(url: string, destination: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Add auth header if we have a GitHub token
+      const options: https.RequestOptions = {};
+      if (this.settings.githubToken) {
+        options.headers = {
+          'Authorization': `token ${this.settings.githubToken}`,
+          // Add a user agent to avoid GitHub API issues
+          'User-Agent': 'For-Fix-Sake-Obsidian-Plugin'
+        };
+      } else {
+        options.headers = {
+          'User-Agent': 'For-Fix-Sake-Obsidian-Plugin'
+        };
+      }
+
+      const file = fs.createWriteStream(destination);
+
+      https.get(url, options, (response) => {
+        // Handle redirects
+        if (response.statusCode === 302 || response.statusCode === 301) {
+          const redirectUrl = response.headers.location;
+          if (redirectUrl) {
+            // Close the current file stream
+            file.close();
+            this.downloadFile(redirectUrl, destination)
+              .then(resolve)
+              .catch(reject);
+            return;
+          }
+        }
+
+        // Check for error status codes
+        if (response.statusCode !== 200) {
+          // Close the file
+          file.close();
+          // Delete the file to avoid corrupted downloads
+          fs.unlinkSync(destination);
+          reject(new Error(`Failed to download file: ${response.statusCode} ${response.statusMessage}`));
+          return;
+        }
+
+        // Check content type to make sure we're getting a zip file
+        const contentType = response.headers['content-type'];
+        if (contentType && !contentType.includes('application/zip') &&
+          !contentType.includes('application/octet-stream')) {
+          console.warn(`Warning: Expected ZIP file but got ${contentType}`);
+        }
+
+        response.pipe(file);
+
+        file.on('finish', () => {
+          file.close();
+          // Validate the ZIP file
+          try {
+            // Simple validation: check for ZIP file signature (PK magic number)
+            const header = Buffer.alloc(4);
+            const fd = fs.openSync(destination, 'r');
+            fs.readSync(fd, header, 0, 4, 0);
+            fs.closeSync(fd);
+
+            // Check for ZIP signature 'PK\x03\x04'
+            if (header[0] !== 0x50 || header[1] !== 0x4B ||
+              header[2] !== 0x03 || header[3] !== 0x04) {
+              throw new Error('Not a valid ZIP file (missing PK signature)');
+            }
+
+            resolve();
+          } catch (error) {
+            // Delete the invalid file
+            try {
+              fs.unlinkSync(destination);
+            } catch (e) {
+              // Ignore error if file can't be deleted
+            }
+            reject(new Error(`Invalid ZIP file: ${error.message}`));
+          }
+        });
+      }).on('error', (err) => {
+        file.close();
+        // Delete the file on error
+        try {
+          fs.unlinkSync(destination);
+        } catch (e) {
+          // Ignore error if file doesn't exist
+        }
+        reject(err);
+      });
+    });
+  }
+
+  extractZip(zipPath: string, destPath: string): void {
+    try {
+      // Validate file exists
+      if (!fs.existsSync(zipPath)) {
+        throw new Error(`ZIP file not found: ${zipPath}`);
+      }
+
+      // Check file size
+      const stats = fs.statSync(zipPath);
+      if (stats.size < 100) {
+        throw new Error(`ZIP file is too small (${stats.size} bytes)`);
+      }
+
+      // Extract with better error handling
+      try {
+        const zip = new AdmZip(zipPath);
+        zip.extractAllTo(destPath, true);
+      } catch (error) {
+        console.error('Error extracting ZIP file:', error);
+
+        // Try to give more specific error messages
+        if (error.message.includes('Invalid LOC header')) {
+          throw new Error('ZIP file is corrupted or invalid (Invalid LOC header)');
+        } else if (error.message.includes('Invalid central directory')) {
+          throw new Error('ZIP file is corrupted (Invalid central directory)');
+        } else {
+          throw error;
+        }
+      }
+    } catch (error) {
+      console.error('Error extracting ZIP file:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Downloads a repository as a ZIP file and searches it locally
+   */
+  async fetchIssuesLocally(repo: string, keywords: string[]): Promise<any[]> {
+    const [owner, repoName] = repo.split('/');
+
+    if (!owner || !repoName) {
+      throw new Error('Invalid repository format. Use "owner/repo"');
+    }
+
+    // Check cache for content
+    const cacheKey = `${repo}-${keywords.join(',')}`;
+    if (this.settings.cacheEnabled && this.cache[cacheKey]) {
+      const cacheEntry = this.cache[cacheKey];
+      const now = Date.now();
+      const expiryTime = this.settings.cacheExpiry * 60 * 1000; // Convert minutes to milliseconds
+
+      // Use cache if not expired
+      if (now - cacheEntry.timestamp < expiryTime) {
+        console.log('Using cached data for', repo);
+        return cacheEntry.data;
+      }
+    }
+
+    // Create Octokit instance for API calls (we still need some API calls)
+    const octokit = this.settings.githubToken
+      ? new Octokit({ auth: this.settings.githubToken })
+      : new Octokit();
+
+    // Create a subdirectory for this repo
+    const repoDir = path.join(this.settings.tempDir, `${owner}-${repoName}`);
+    if (!fs.existsSync(repoDir)) {
+      fs.mkdirSync(repoDir, { recursive: true });
+    }
+
+    // Get repository info
+    const { data: repoData } = await octokit.rest.repos.get({
+      owner,
+      repo: repoName,
+    });
+
+    // Get default branch
+    const defaultBranch = repoData.default_branch;
+
+    // Get latest commit SHA for the default branch
+    const { data: branchData } = await octokit.rest.repos.getBranch({
+      owner,
+      repo: repoName,
+      branch: defaultBranch
+    });
+
+    const latestCommit = branchData.commit.sha;
+
+    // Check if we already have this repo downloaded and it's up to date
+    if (this.repoCache[repo] && this.repoCache[repo].latestCommit === latestCommit) {
+      console.log(`Repository ${repo} is already up to date locally`);
+    } else {
+      console.log(`Downloading repository ${repo}...`);
+
+      // Build the download URL
+      const downloadUrl = `https://github.com/${owner}/${repoName}/archive/${defaultBranch}.zip`;
+
+      // Download path
+      const downloadPath = path.join(repoDir, `${repoName}-${defaultBranch}.zip`);
+      const extractPath = path.join(repoDir, `${repoName}-${defaultBranch}`);
+
+      // Download the ZIP file
+      await this.downloadFile(downloadUrl, downloadPath);
+
+      // Extract the ZIP file
+      this.extractZip(downloadPath, repoDir);
+
+      // Update repo cache
+      this.repoCache[repo] = {
+        latestCommit,
+        downloadPath,
+        extractPath,
+        timestamp: Date.now()
+      };
+    }
+
+    // The extracted directory name will be 'repoName-defaultBranch'
+    const searchDir = path.join(repoDir, `${repoName}-${defaultBranch}`);
+
+    // Now search for keywords in the local repository
+    const results = [];
+
+    // Walk the directory to find all files
+    const walkDir = (dir: string): string[] => {
+      const files: string[] = [];
+      const items = fs.readdirSync(dir);
+
+      for (const item of items) {
+        const itemPath = path.join(dir, item);
+        const stat = fs.statSync(itemPath);
+
+        if (stat.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
+          // Skip node_modules and similar directories
+          if (['node_modules', '.git', 'build', 'dist', 'target'].includes(item)) {
+            continue;
+          }
+          files.push(...walkDir(itemPath));
+        } else if (stat.isFile()) {
+          // Include all files regardless of extension - we'll filter by size later
+          files.push(itemPath);
+        }
+      }
+
+      return files;
+    };
+
+    // Get all files in the repository
+    const files = walkDir(searchDir);
+
+    // Search each file for keywords
+    for (const file of files) {
+      try {
+        // Skip large files
+        const stat = fs.statSync(file);
+        if (stat.size > 500000) {
+          continue;
+        }
+
+        // Read file content, skipping if it seems to be binary
+        let content;
+        try {
+          content = fs.readFileSync(file, 'utf8');
+
+          // Skip files that seem to be binary
+          if (content.includes('\0') || /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]{50,}/.test(content)) {
+            continue;
+          }
+        } catch (readError) {
+          // Skip files that can't be read as text
+          continue;
+        }
+
+        const lines = content.split('\n');
+
+        // Get relative path to create GitHub URL
+        const relativePath = path.relative(searchDir, file).replace(/\\/g, '/');
+
+        // Check each line for keywords
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+
+          for (const keyword of keywords) {
+            // Look for the keyword in the line (not just keyword:)
+            // This is a simple case-insensitive check
+            if (line.toLowerCase().includes(keyword.toLowerCase())) {
+              // Include the next line if available for context
+              const nextLine = i + 1 < lines.length ? '\n' + lines[i + 1].trim() : '';
+
+              results.push({
+                file: relativePath,
+                line: i + 1,
+                content: line.trim() + nextLine,
+                url: `https://github.com/${owner}/${repoName}/blob/${defaultBranch}/${relativePath}#L${i + 1}`
+              });
+
+              // Only match once per line per keyword
+              break;
+            }
+          }
+        }
+      } catch (error) {
+        console.warn(`Error processing file ${file}:`, error);
+      }
+    }
+
+    console.log(`Found ${results.length} issues in ${repo} locally`);
+
+    // Cache the results if caching is enabled
+    if (this.settings.cacheEnabled) {
+      this.cache[cacheKey] = {
+        timestamp: Date.now(),
+        data: results
+      };
+    }
+
+    return results;
+  }
 }
 
 class ForFixSakeSettingTab extends PluginSettingTab {
@@ -400,6 +787,56 @@ class ForFixSakeSettingTab extends PluginSettingTab {
         .onChange(async (value) => {
           this.plugin.settings.cacheExpiry = value;
           await this.plugin.saveSettings();
+        }));
+
+    // Local repository settings
+    containerEl.createEl('h3', { text: 'Local Repository Settings' });
+
+    new Setting(containerEl)
+      .setName('Repository Cache Directory')
+      .setDesc('Directory to store downloaded repositories')
+      .addText(text => text
+        .setPlaceholder(os.tmpdir())
+        .setValue(this.plugin.settings.tempDir)
+        .onChange(async (value) => {
+          this.plugin.settings.tempDir = value || os.tmpdir();
+          await this.plugin.saveSettings();
+
+          // Create directory if it doesn't exist
+          this.plugin.ensureTempDirExists();
+        }));
+
+    // Add button to clear repository cache
+    new Setting(containerEl)
+      .setName('Clear Repository Cache')
+      .setDesc('Delete all downloaded repositories to free up disk space')
+      .addButton(button => button
+        .setButtonText('Clear Cache')
+        .onClick(async () => {
+          try {
+            // Clear cache if directory exists
+            if (fs.existsSync(this.plugin.settings.tempDir)) {
+              const files = fs.readdirSync(this.plugin.settings.tempDir);
+              for (const file of files) {
+                const filePath = path.join(this.plugin.settings.tempDir, file);
+                if (fs.lstatSync(filePath).isDirectory()) {
+                  // Remove directory recursively
+                  fs.rmdirSync(filePath, { recursive: true });
+                } else {
+                  // Remove file
+                  fs.unlinkSync(filePath);
+                }
+              }
+
+              // Clear repo cache
+              this.plugin.repoCache = {};
+
+              new Notice('Repository cache cleared successfully');
+            }
+          } catch (error) {
+            console.error('Failed to clear repository cache:', error);
+            new Notice('Failed to clear cache: ' + error.message);
+          }
         }));
   }
 } 

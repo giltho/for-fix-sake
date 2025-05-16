@@ -481,25 +481,55 @@ export default class ForFixSakePlugin extends Plugin {
       });
 
       // Try to highlight specific keywords within the code
-      const highlightKeyword = (keyword: string, color: string) => {
-        if (issue.content.toLowerCase().includes(keyword.toLowerCase())) {
-          try {
-            // This is a simple approach that might not be perfect for all cases
-            // A more robust solution would use a proper code parsing library
-            const regex = new RegExp(`(${keyword})`, 'i');
-            code.innerHTML = code.innerHTML.replace(regex, `<span style="color: ${color}; font-weight: bold;">$1</span>`);
-          } catch (e) {
-            // Ignore regex errors
-          }
+      const highlightKeywords = () => {
+        // First, escape HTML to prevent XSS
+        let htmlContent = issue.content
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+
+        // Define an array of patterns to match with their colors
+        const keywordPatterns = [
+          { regex: /\b(TODO)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, color: '#2ecc71' }, // green - matches TODO, TODO:, TODO(user), TODO[123]
+          { regex: /\b(FIXME)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, color: '#e74c3c' }, // red - matches FIXME, FIXME:, FIXME(user)
+          { regex: /\b(BUG)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, color: '#e67e22' },   // orange
+          { regex: /\b(HACK)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, color: '#9b59b6' },  // purple
+          { regex: /\b(NOTE)(\([^)]*\)|\[[^\]]*\])?(:)?/gi, color: '#3498db' }   // blue
+        ];
+
+        // Also highlight comment patterns that contain the keywords
+        const commentPatterns = [
+          { prefix: '//', style: 'color: #7f8c8d' },  // single-line comment
+          { prefix: '/*', style: 'color: #7f8c8d' },  // multi-line comment start
+          { prefix: '#', style: 'color: #7f8c8d' },   // shell/python style
+          { prefix: '--', style: 'color: #7f8c8d' },  // SQL style
+          { prefix: ';', style: 'color: #7f8c8d' },   // assembly/lisp style
+        ];
+
+        // Apply comment highlighting
+        for (const pattern of commentPatterns) {
+          const escapedPrefix = pattern.prefix
+            .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const commentRegex = new RegExp(`(${escapedPrefix}\\s*.+)`, 'g');
+          htmlContent = htmlContent.replace(commentRegex, `<span style="${pattern.style}">$1</span>`);
         }
+
+        // Apply keyword highlighting on top of comment highlighting
+        for (const pattern of keywordPatterns) {
+          htmlContent = htmlContent.replace(pattern.regex, (match: string, keyword: string, attributes: string, colon: string) => {
+            attributes = attributes || '';
+            colon = colon || '';
+            return `<span style="color: ${pattern.color}; font-weight: bold;">${keyword}</span>${attributes}${colon}`;
+          });
+        }
+
+        code.innerHTML = htmlContent;
       };
 
-      // Highlight common keywords
-      highlightKeyword('TODO', '#2ecc71');  // Green
-      highlightKeyword('FIXME', '#e74c3c'); // Red
-      highlightKeyword('BUG', '#e67e22');   // Orange
-      highlightKeyword('HACK', '#9b59b6');  // Purple
-      highlightKeyword('NOTE', '#3498db');  // Blue
+      // Apply keyword highlighting
+      highlightKeywords();
     });
 
     // Add filter functionality

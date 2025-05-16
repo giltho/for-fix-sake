@@ -20,16 +20,32 @@ interface GitHubContent {
 interface ForFixSakeSettings {
   githubToken: string;
   defaultKeywords: string[];
+  cacheEnabled: boolean;
+  cacheExpiry: number; // In minutes
+}
+
+// Cache structure
+interface CacheEntry {
+  timestamp: number;
+  data: any;
+  etag?: string;
+}
+
+interface PluginCache {
+  [key: string]: CacheEntry;
 }
 
 // Define default settings
 const DEFAULT_SETTINGS: ForFixSakeSettings = {
   githubToken: '',
-  defaultKeywords: ['TODO', 'FIXME']
+  defaultKeywords: ['TODO', 'FIXME'],
+  cacheEnabled: true,
+  cacheExpiry: 60 // 60 minutes
 }
 
 export default class ForFixSakePlugin extends Plugin {
   settings: ForFixSakeSettings;
+  cache: PluginCache = {};
 
   async onload() {
     await this.loadSettings();
@@ -61,11 +77,48 @@ export default class ForFixSakePlugin extends Plugin {
         const issues = await this.fetchIssues(repo, keywords);
         this.renderIssues(issues, el);
       } catch (error) {
-        // Check if it might be a private repository access issue
+        // Error container with better styling
+        const errorEl = el.createEl('div', { cls: 'for-fix-sake-error' });
+        errorEl.style.backgroundColor = 'var(--background-modifier-error)';
+        errorEl.style.color = 'var(--text-on-accent)';
+        errorEl.style.padding = '10px';
+        errorEl.style.borderRadius = '4px';
+        errorEl.style.marginTop = '10px';
+
+        // Check specific error types
         if (error.status === 404 && !this.settings.githubToken) {
-          el.createEl('div', { text: `Error: This may be a private repository. Please configure a GitHub token in the plugin settings.` });
+          errorEl.createEl('h3', { text: 'Repository Not Found' });
+          errorEl.createEl('p', { text: 'This may be a private repository. Please configure a GitHub token in the plugin settings.' });
+        } else if (error.status === 403 && error.message.includes('rate limit') || error.message.includes('quota exhausted')) {
+          errorEl.createEl('h3', { text: 'GitHub API Rate Limit Reached' });
+          errorEl.createEl('p', { text: 'You have reached GitHub\'s API rate limit for unauthenticated requests.' });
+          errorEl.createEl('p', { text: 'To increase your rate limit, please add a GitHub token in the plugin settings.' });
+
+          // Add link to settings
+          const settingsLink = errorEl.createEl('a', {
+            text: 'Open Plugin Settings',
+            href: '#'
+          });
+          settingsLink.style.color = 'var(--text-on-accent)';
+          settingsLink.style.textDecoration = 'underline';
+          settingsLink.addEventListener('click', () => {
+            // Just show a notice with instructions
+            new Notice('Please go to Settings → Plugin Options → For Fix Sake');
+
+            // Try to open settings if we can
+            try {
+              // @ts-ignore - App structure might vary across Obsidian versions
+              if (this.app.setting) {
+                // @ts-ignore
+                this.app.setting.open();
+              }
+            } catch (e) {
+              console.log('Could not automatically open settings');
+            }
+          });
         } else {
-          el.createEl('div', { text: `Error fetching issues: ${error.message}` });
+          errorEl.createEl('h3', { text: 'Error' });
+          errorEl.createEl('p', { text: `Failed to fetch issues: ${error.message}` });
         }
       }
     });
@@ -75,6 +128,20 @@ export default class ForFixSakePlugin extends Plugin {
   }
 
   async fetchIssues(repo: string, keywords: string[]) {
+    // Check cache first if enabled
+    const cacheKey = `${repo}-${keywords.join(',')}`;
+    if (this.settings.cacheEnabled && this.cache[cacheKey]) {
+      const cacheEntry = this.cache[cacheKey];
+      const now = Date.now();
+      const expiryTime = this.settings.cacheExpiry * 60 * 1000; // Convert minutes to milliseconds
+
+      // Use cache if not expired
+      if (now - cacheEntry.timestamp < expiryTime) {
+        console.log('Using cached data for', repo);
+        return cacheEntry.data;
+      }
+    }
+
     // Create Octokit instance with or without authentication
     const octokit = this.settings.githubToken
       ? new Octokit({ auth: this.settings.githubToken })
@@ -167,6 +234,14 @@ export default class ForFixSakePlugin extends Plugin {
           }
         }
       }
+    }
+
+    // Cache the results if caching is enabled
+    if (this.settings.cacheEnabled) {
+      this.cache[cacheKey] = {
+        timestamp: Date.now(),
+        data: results
+      };
     }
 
     return results;
@@ -301,6 +376,29 @@ class ForFixSakeSettingTab extends PluginSettingTab {
         .setValue(this.plugin.settings.defaultKeywords.join(','))
         .onChange(async (value) => {
           this.plugin.settings.defaultKeywords = value.split(',').map(k => k.trim());
+          await this.plugin.saveSettings();
+        }));
+
+    // Cache settings
+    new Setting(containerEl)
+      .setName('Enable Caching')
+      .setDesc('Cache GitHub API requests to reduce rate limiting')
+      .addToggle(toggle => toggle
+        .setValue(this.plugin.settings.cacheEnabled)
+        .onChange(async (value) => {
+          this.plugin.settings.cacheEnabled = value;
+          await this.plugin.saveSettings();
+        }));
+
+    new Setting(containerEl)
+      .setName('Cache Expiry')
+      .setDesc('How long to cache results (in minutes)')
+      .addSlider(slider => slider
+        .setLimits(5, 240, 5)
+        .setValue(this.plugin.settings.cacheExpiry)
+        .setDynamicTooltip()
+        .onChange(async (value) => {
+          this.plugin.settings.cacheExpiry = value;
           await this.plugin.saveSettings();
         }));
   }

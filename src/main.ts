@@ -536,9 +536,11 @@ export default class ForFixSakePlugin extends Plugin {
 
       // Add file extension badge if we can determine it
       const fileExt = issue.file.split('.').pop()?.toLowerCase();
-      if (fileExt && fileExtToLanguage[fileExt]) {
+      if (fileExt) {
+        // If we know the language, use it, otherwise use the file extension
+        const langText = fileExtToLanguage[fileExt] || fileExt;
         const langBadge = fileHeader.createEl('span', {
-          text: fileExtToLanguage[fileExt],
+          text: langText,
           cls: 'for-fix-sake-lang-badge'
         });
         langBadge.style.backgroundColor = 'var(--background-modifier-border)';

@@ -331,43 +331,188 @@ export default class ForFixSakePlugin extends Plugin {
     container.style.padding = '10px';
     container.style.backgroundColor = 'var(--background-secondary)';
 
-    // Create header
+    // Create header with counter
     container.createEl('h3', { text: `Found ${issues.length} issues` });
+
+    // Add filter inputs
+    const filterContainer = container.createEl('div', { cls: 'for-fix-sake-filter' });
+    filterContainer.style.marginBottom = '10px';
+
+    const filterInput = filterContainer.createEl('input', {
+      attr: {
+        type: 'text',
+        placeholder: 'Filter issues...'
+      }
+    });
+    filterInput.style.width = '100%';
+    filterInput.style.padding = '4px 8px';
+    filterInput.style.borderRadius = '4px';
+    filterInput.style.border = '1px solid var(--background-modifier-border)';
+    filterInput.style.marginBottom = '8px';
+
+    // Create a map of file extensions to their language names
+    const fileExtToLanguage: { [key: string]: string } = {
+      'js': 'javascript',
+      'jsx': 'javascript',
+      'ts': 'typescript',
+      'tsx': 'typescript',
+      'py': 'python',
+      'rb': 'ruby',
+      'java': 'java',
+      'c': 'c',
+      'cpp': 'cpp',
+      'h': 'c',
+      'hpp': 'cpp',
+      'cs': 'csharp',
+      'go': 'go',
+      'rs': 'rust',
+      'swift': 'swift',
+      'kt': 'kotlin',
+      'php': 'php',
+      'html': 'html',
+      'css': 'css',
+      'scss': 'scss',
+      'md': 'markdown',
+      'json': 'json',
+      'yml': 'yaml',
+      'yaml': 'yaml',
+      'xml': 'xml',
+      'sh': 'bash',
+      'bash': 'bash',
+      'ml': 'ocaml',
+      'mli': 'ocaml'
+    };
 
     // Create issues list
     const list = container.createEl('ul');
     list.style.listStyleType = 'none';
     list.style.padding = '0';
+    list.style.margin = '0';
+
+    const listItems: HTMLLIElement[] = [];
 
     issues.forEach(issue => {
       const item = list.createEl('li');
+      listItems.push(item);
+
       item.style.margin = '8px 0';
-      item.style.padding = '8px';
+      item.style.padding = '12px';
       item.style.backgroundColor = 'var(--background-primary)';
       item.style.borderRadius = '4px';
+      item.style.borderLeft = '4px solid';
+
+      // Determine the color based on the keyword
+      const content = issue.content.toLowerCase();
+      if (content.includes('fixme')) {
+        item.style.borderLeftColor = '#e74c3c'; // Red for FIXME
+      } else if (content.includes('todo')) {
+        item.style.borderLeftColor = '#2ecc71'; // Green for TODO
+      } else {
+        item.style.borderLeftColor = '#3498db'; // Blue for other keywords
+      }
+
+      // File header section
+      const fileHeader = item.createEl('div', { cls: 'for-fix-sake-file-header' });
+      fileHeader.style.display = 'flex';
+      fileHeader.style.alignItems = 'center';
+      fileHeader.style.marginBottom = '8px';
 
       // File name with link
-      const fileLink = item.createEl('a', {
+      const fileLink = fileHeader.createEl('a', {
         text: issue.file,
         href: issue.url
       });
       fileLink.style.fontWeight = 'bold';
       fileLink.style.color = 'var(--interactive-accent)';
-
-      // Line number
-      item.createEl('span', {
-        text: ` (line ${issue.line})`
+      fileLink.style.marginRight = '8px';
+      fileLink.style.textDecoration = 'none';
+      fileLink.addEventListener('mouseenter', () => {
+        fileLink.style.textDecoration = 'underline';
+      });
+      fileLink.addEventListener('mouseleave', () => {
+        fileLink.style.textDecoration = 'none';
       });
 
-      // Issue content
-      const content = item.createEl('div');
-      content.style.marginTop = '4px';
-      content.style.fontFamily = 'var(--font-monospace)';
-      content.style.padding = '4px';
-      content.style.backgroundColor = 'var(--background-secondary)';
-      content.style.borderRadius = '4px';
-      content.style.whiteSpace = 'pre-wrap';
-      content.textContent = issue.content;
+      // Line number badge
+      const lineNumber = fileHeader.createEl('span', {
+        text: `Line ${issue.line}`,
+        cls: 'for-fix-sake-line-number'
+      });
+      lineNumber.style.backgroundColor = 'var(--interactive-accent)';
+      lineNumber.style.color = 'white';
+      lineNumber.style.padding = '2px 6px';
+      lineNumber.style.borderRadius = '4px';
+      lineNumber.style.fontSize = '12px';
+      lineNumber.style.fontWeight = 'bold';
+
+      // Add file extension badge if we can determine it
+      const fileExt = issue.file.split('.').pop()?.toLowerCase();
+      if (fileExt && fileExtToLanguage[fileExt]) {
+        const langBadge = fileHeader.createEl('span', {
+          text: fileExtToLanguage[fileExt],
+          cls: 'for-fix-sake-lang-badge'
+        });
+        langBadge.style.backgroundColor = 'var(--background-modifier-border)';
+        langBadge.style.color = 'var(--text-normal)';
+        langBadge.style.padding = '2px 6px';
+        langBadge.style.borderRadius = '4px';
+        langBadge.style.fontSize = '12px';
+        langBadge.style.marginLeft = '8px';
+      }
+
+      // Issue content with syntax highlighting
+      const codeBlock = item.createEl('div', { cls: 'for-fix-sake-code-block' });
+      codeBlock.style.marginTop = '8px';
+      codeBlock.style.background = 'var(--background-secondary)';
+      codeBlock.style.borderRadius = '4px';
+      codeBlock.style.overflow = 'hidden';
+
+      // Create a pre element for the code
+      const pre = codeBlock.createEl('pre', { cls: 'for-fix-sake-pre' });
+      pre.style.margin = '0';
+      pre.style.padding = '8px 12px';
+      pre.style.overflowX = 'auto';
+
+      // Create a code element with language class if available
+      const language = fileExt && fileExtToLanguage[fileExt] ? fileExtToLanguage[fileExt] : '';
+      const code = pre.createEl('code', {
+        cls: language ? `language-${language}` : '',
+        text: issue.content
+      });
+
+      // Try to highlight specific keywords within the code
+      const highlightKeyword = (keyword: string, color: string) => {
+        if (issue.content.toLowerCase().includes(keyword.toLowerCase())) {
+          try {
+            // This is a simple approach that might not be perfect for all cases
+            // A more robust solution would use a proper code parsing library
+            const regex = new RegExp(`(${keyword})`, 'i');
+            code.innerHTML = code.innerHTML.replace(regex, `<span style="color: ${color}; font-weight: bold;">$1</span>`);
+          } catch (e) {
+            // Ignore regex errors
+          }
+        }
+      };
+
+      // Highlight common keywords
+      highlightKeyword('TODO', '#2ecc71');  // Green
+      highlightKeyword('FIXME', '#e74c3c'); // Red
+      highlightKeyword('BUG', '#e67e22');   // Orange
+      highlightKeyword('HACK', '#9b59b6');  // Purple
+      highlightKeyword('NOTE', '#3498db');  // Blue
+    });
+
+    // Add filter functionality
+    filterInput.addEventListener('input', () => {
+      const filterText = filterInput.value.toLowerCase();
+      listItems.forEach(item => {
+        const text = item.textContent?.toLowerCase() || '';
+        if (filterText === '' || text.includes(filterText)) {
+          item.style.display = '';
+        } else {
+          item.style.display = 'none';
+        }
+      });
     });
   }
 

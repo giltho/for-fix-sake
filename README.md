@@ -1,16 +1,18 @@
 # For Fix Sake - Obsidian Plugin
 
-An Obsidian plugin that helps you track TODOs and FIXMEs from your GitHub repositories with powerful search, filtering, and organization capabilities.
+An Obsidian plugin that helps you track TODOs and FIXMEs from your GitHub repositories with powerful search, filtering, and visualization capabilities.
 
 ## Features
 
 - Find and display TODOs, FIXMEs, and other configurable keywords from GitHub repositories
 - **Local Repository Analysis**: Downloads repositories and searches locally to avoid API rate limits
 - **Smart Grouping**: Group issues by language, file, or keyword
-- **Advanced Filtering**: Filter results by programming language or search text
+- **Rich Visualization**: Color-coded issues (green for TODOs, red for FIXMEs) and syntax highlighting based on file type
+- **Advanced Filtering**: Filter results by programming language or search text directly in the rendered view
 - **Enhanced Keyword Detection**: Recognizes various TODO formats (TODO, TODO:, // TODO, /* TODO, etc.)
 - **Performance Optimized**: Repository caching to minimize downloads and API calls
-- **Rich UI**: Collapsible sections, language badges, and code highlighting
+- **Comprehensive Language Support**: Supports syntax highlighting for 25+ programming languages
+- **Robust Error Handling**: Graceful handling of network issues and corrupted downloads
 - Direct linking to the source code on GitHub
 - Simple syntax for embedding in your notes
 
@@ -29,7 +31,7 @@ force-api: false # optional, set to true to force using GitHub API instead of lo
 The plugin will:
 1. Download the repository (if using local search) or query the GitHub API
 2. Scan for your specified keywords
-3. Display the results in an organized, filterable view
+3. Display the results in an organized, filterable view with syntax highlighting
 
 ## Advanced Usage
 
@@ -40,13 +42,28 @@ The plugin recognizes many common patterns for TODOs:
 - Commented keywords: `// TODO`, `/* FIXME */`, `# TODO`, etc.
 - Keywords with assignees: `TODO(username)`, `FIXME[john]`, etc.
 
-### Grouping and Filtering
+### Filtering and Visualization
 
-Use the UI controls to:
-- Group issues by programming language, file, or keyword
-- Filter by specific programming language
-- Search within issue text
-- Collapse/expand groups for better organization
+The enhanced UI provides:
+- **Instant Filtering**: Type in the filter box to instantly filter results
+- **Color-Coding**: Green for TODOs, red for FIXMEs, and other colors for different types of notes
+- **Language Badges**: Automatically detects and displays the programming language based on file extension
+- **Syntax Highlighting**: Code snippets are highlighted according to their language
+- **Line Number Badges**: Quickly see which line in the file contains the issue
+- **Direct GitHub Links**: Click on filenames to go directly to the code on GitHub
+
+### Supported Languages
+
+The plugin supports syntax highlighting for numerous languages including:
+- JavaScript/TypeScript
+- Python, Ruby, PHP
+- Java, C/C++, C#, Go, Rust
+- Swift, Kotlin
+- HTML, CSS, SCSS
+- Markdown, JSON, YAML, XML
+- Shell scripts
+- OCaml
+- And many more...
 
 ## Configuration
 
@@ -56,7 +73,7 @@ Use the UI controls to:
 4. Configure default keywords to search for
 5. Configure local search settings:
    - Enable/disable local repository search (recommended for better performance)
-   - Set maximum repository size to download
+   - Set cache expiry time for downloaded repositories
    - Configure cache directory for downloaded repositories
    - Clear repository cache when needed
 
@@ -64,11 +81,19 @@ Use the UI controls to:
 
 The plugin offers two search methods:
 - **Local Search** (default): Downloads repositories as ZIP files and searches locally
-  - Advantages: Faster, no API rate limits, better results
+  - Advantages: Faster, no API rate limits, better results, searches all text files
   - Disadvantages: Requires disk space, larger repositories take longer to download
 - **API Search**: Uses GitHub's Search API
   - Advantages: No downloads required, works for very large repositories
   - Disadvantages: Subject to GitHub API rate limits, slower for multiple keywords
+
+## Smart Repository Management
+
+The plugin intelligently manages downloaded repositories:
+- **Change Detection**: Only re-downloads repositories when changes are detected (via commit SHA)
+- **ZIP Validation**: Validates downloaded ZIP files to prevent corruption
+- **Binary File Detection**: Automatically skips binary files during local search
+- **Error Recovery**: Falls back to API search if local search fails
 
 ## Requirements
 
@@ -107,7 +132,7 @@ If you encounter rate limit errors with the API search:
 If you have issues downloading repositories:
 1. Check your internet connection
 2. Verify you have enough disk space
-3. Try increasing the maximum repository size setting
+3. Try clearing the repository cache and downloading again
 4. For private repositories, make sure your GitHub token has correct permissions
 
 ## Development

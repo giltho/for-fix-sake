@@ -3,8 +3,11 @@
   "name": "For Fix Sake",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
-  "description": "Find and display TODOs and FIXMEs from repositories",
-  "author": "",
-  "authorUrl": "",
-  "isDesktopOnly": false
+  "description": "Find and display TODOs and FIXMEs from GitHub repositories with powerful filtering and grouping capabilities",
+  "author": "For Fix Sake Team",
+  "authorUrl": "https://github.com/for-fix-sake/obsidian-plugin",
+  "isDesktopOnly": true,
+  "fundingUrl": {
+    "GitHub Sponsor": "https://github.com/sponsors/for-fix-sake"
+  }
 }
